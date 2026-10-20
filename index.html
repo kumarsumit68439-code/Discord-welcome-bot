@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord Welcome Bot</title>
+<style>
+:root{--bg:#f5f6fa;--card:#fff;--text:#1e1f22;--mut:#666;--bd:#e0e2e8;--pri:#5865f2}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1f22;--card:#2b2d31;--text:#f2f3f5;--mut:#a0a3aa;--bd:#3f4147}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:16px}
+.wrap{max-width:820px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:18px;margin-bottom:14px}
+h1{font-size:22px;margin:6px 0 16px}h3{margin:0 0 10px}
+input,select,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--text);margin:6px 0 12px;font:inherit}
+button{background:var(--pri);color:#fff;border:0;border-radius:8px;padding:10px 16px;font:inherit;cursor:pointer;margin-right:8px}
+button.sec{background:transparent;color:var(--text);border:1px solid var(--bd)}
+.row{display:flex;align-items:center;gap:12px}.row img,.ph{width:48px;height:48px;border-radius:50%;background:var(--bd)}
+.mut{color:var(--mut);font-size:13px}.err{color:#e5484d;margin:8px 0}.ok{color:#2e9e5b}
+.badge{padding:3px 10px;border-radius:99px;font-size:12px;background:var(--bd)}
+label{font-size:14px}
+.g{border-top:1px solid var(--bd);padding-top:14px;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🤖 Discord Welcome Bot</h1>
+<div id="app"></div>
+</div>
+<script>
+let T = localStorage.getItem('t') || '';
+const $ = s => document.querySelector(s);
+const api = async (url, method='GET', body) => {
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json','x-auth':T}, body: body?JSON.stringify(body):undefined});
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || 'Error');
+  return j;
+};
+const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function render() {
+  const s = await api('/api/state');
+  const app = $('#app');
+  if (!s.loggedIn) {
+    app.innerHTML = `<div class="card"><h3>${s.hasAdmin?'Login':'Admin password set karo'}</h3>
+      <p class="mut">${s.hasAdmin?'Apna admin password daalo.':'Pehli baar hai. Ye password dashboard ko protect karega.'}</p>
+      <input id="pw" type="password" placeholder="Password (min 6 characters)">
+      <button onclick="login()">${s.hasAdmin?'Login':'Set & Login'}</button><div id="e" class="err"></div></div>`;
+    return;
+  }
+  if (!s.hasToken || s.bot.status === 'error') {
+    app.innerHTML = `<div class="card"><h3>Bot connect karo</h3>
+      <p class="mut">Discord Developer Portal → Application → Bot me jao. Wahan <b>Server Members Intent</b> ON karo, phir Client ID aur Token yahan daalo.</p>
+      ${s.bot.error?`<div class="err">${esc(s.bot.error)}</div>`:''}
+      <label>Client ID (Application ID)</label><input id="cid" placeholder="123456789012345678">
+      <label>Bot Token</label><input id="tok" type="password" placeholder="Bot token">
+      <button onclick="connect()">Connect Bot</button><div id="e" class="err"></div></div>`;
+    return;
+  }
+  const inv = await api('/api/invite');
+  app.innerHTML = `<div class="card"><div class="row"><div style="flex:1"><h3 style="margin:0">Bot status: <span class="badge">${s.bot.status}</span></h3>
+    <div class="mut">Bot ko server me add karne ke liye invite link use karo.</div></div>
+    <a href="${inv.url}" target="_blank"><button>Invite Bot</button></a>
+    <button class="sec" onclick="disc()">Disconnect</button></div></div>
+    <div id="guilds"><div class="card mut">Servers load ho rahe hain…</div></div>`;
+  loadGuilds();
+}
+
+async function loadGuilds() {
+  const list = await api('/api/guilds');
+  $('#guilds').innerHTML = list.length ? '' : '<div class="card mut">Bot abhi kisi server me nahi hai. Upar se Invite Bot karo, phir page refresh karo.</div>';
+  for (const g of list) {
+    const el = document.createElement('div'); el.className = 'card';
+    el.innerHTML = `<div class="row">${g.icon?`<img src="${g.icon}">`:'<div class="ph"></div>'}
+      <div><h3 style="margin:0">${esc(g.name)}</h3><div class="mut">${g.members} members</div></div></div>
+      <div class="g"><label><input type="checkbox" id="en-${g.id}" ${g.config.enabled?'checked':''} style="width:auto;margin-right:6px">Welcome enabled</label>
+      <label style="display:block;margin-top:10px">Welcome channel</label>
+      <select id="ch-${g.id}"><option value="">-- channel chuno --</option>${g.channels.map(c=>`<option value="${c.id}" ${c.id===g.config.channelId?'selected':''}>#${esc(c.name)}</option>`).join('')}</select>
+      <label>Message <span class="mut">({user} {username} {server} {count})</span></label>
+      <textarea id="msg-${g.id}" rows="3">${esc(g.config.message)}</textarea>
+      <button onclick="saveG('${g.id}')">Save</button><button class="sec" onclick="testG('${g.id}')">Test welcome</button>
+      <span id="r-${g.id}" class="mut"></span></div>`;
+    $('#guilds').appendChild(el);
+  }
+}
+
+const body = id => ({enabled:$('#en-'+id).checked, channelId:$('#ch-'+id).value, message:$('#msg-'+id).value});
+async function saveG(id){ const r=$('#r-'+id); try{await api('/api/guilds/'+id,'POST',body(id)); r.className='ok'; r.textContent='Saved ✓';}catch(e){r.className='err'; r.textContent=e.message;} }
+async function testG(id){ const r=$('#r-'+id); try{await api('/api/guilds/'+id,'POST',body(id)); await api('/api/guilds/'+id+'/test','POST'); r.className='ok'; r.textContent='Test message bhej diya ✓';}catch(e){r.className='err'; r.textContent=e.message;} }
+async function login(){ try{const j=await api('/api/login','POST',{password:$('#pw').value}); T=j.token; localStorage.setItem('t',T); render();}catch(e){$('#e').textContent=e.message;} }
+async function connect(){ $('#e').textContent='Connecting…'; try{await api('/api/connect','POST',{clientId:$('#cid').value,token:$('#tok').value}); setTimeout(render,1500);}catch(e){$('#e').textContent=e.message;} }
+async function disc(){ if(confirm('Bot disconnect karna hai?')){await api('/api/disconnect','POST'); render();} }
+render();
+</script>
+</body>
+</html>
